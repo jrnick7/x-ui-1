@@ -88,7 +88,7 @@ before_show_menu() {
 }
 
 install() {
-    bash <(curl -Ls https://raw.githubusercontents.com/taffychan/x-ui/main/install.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/taffychan/x-ui/main/install.sh)
     if [[ $? == 0 ]]; then
         if [[ $# == 0 ]]; then
             start
@@ -106,19 +106,14 @@ update() {
             rm -rf /usr/local/x-ui/
         fi
         
-        last_version=$(curl -Ls "https://api.github.com/repos/taffychan/x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        last_version=$(curl -Ls "https://api.github.com/repos/taffychan/x-ui-3/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/') || last_version=$(curl -sm8 https://raw.githubusercontent.com/taffychan/x-ui-3/main/config/version)
         if [[ -z "$last_version" ]]; then
-            red "检测 x-ui 版本失败，可能是超出 Github API 限制，正在使用备用源检测最新版本"
-            last_version=$(curl -sm8 https://raw.githubusercontents.com/taffychan/x-ui/main/config/version)
-            if [[ -z "$last_version" ]]; then
-                red "检测 x-ui 版本失败，请确保你的服务器能够连接 Github 服务"
-                rm -f install.sh
-                exit 1
-            fi
+            red "检测 x-ui 版本失败，请确保你的服务器能够连接 Github 服务"
+            exit 1
         fi
         
         yellow "检测到 x-ui 最新版本: ${last_version}，开始安装"
-        wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(archAffix).tar.gz https://github.com/taffychan/x-ui/releases/download/${last_version}/x-ui-linux-$(archAffix).tar.gz
+        wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(archAffix).tar.gz https://github.com/taffychan/x-ui-3/releases/download/${last_version}/x-ui-linux-$(archAffix).tar.gz
         if [[ $? -ne 0 ]]; then
             red "下载 x-ui 失败, 请确保你的服务器能够连接并下载 Github 的文件"
             exit 1
@@ -132,7 +127,7 @@ update() {
         chmod +x x-ui bin/xray-linux-$(archAffix)
         cp -f x-ui.service /etc/systemd/system/
         
-        wget -N --no-check-certificate https://raw.githubusercontents.com/taffychan/x-ui/main/x-ui.sh -O /usr/bin/x-ui
+        wget -N --no-check-certificate https://raw.githubusercontent.com/taffychan/x-ui-3/main/x-ui.sh -O /usr/bin/x-ui
         chmod +x /usr/local/x-ui/x-ui.sh
         chmod +x /usr/bin/x-ui
         
@@ -321,7 +316,7 @@ migrate_v2_ui() {
 
 install_bbr() {
     # temporary workaround for installing bbr
-    bash <(curl -L -s https://raw.githubusercontents.com/teddysun/across/master/bbr.sh)
+    bash <(curl -L -s https://raw.githubusercontent.com/teddysun/across/master/bbr.sh)
     echo ""
     before_show_menu
 }
@@ -450,6 +445,34 @@ open_ports(){
     before_show_menu
 }
 
+update_geo(){
+    systemctl stop x-ui
+    cd /usr/local/x-ui/bin
+    rm -f geoip.dat geosite.dat
+    wget -N https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+    wget -N https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+    systemctl start x-ui
+    green "Geosite 和 GeoIP 已更新成功！"
+}
+
+check_login_info(){
+    yellow "正在检查VPS系统及x-ui面板配置, 请稍等..."
+    
+    WgcfIPv4Status=$(curl -s4m8 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
+    WgcfIPv6Status=$(curl -s6m8 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
+    if [[ $WgcfIPv4Status =~ "on"|"plus" ]] || [[ $WgcfIPv6Status =~ "on"|"plus" ]]; then
+        wg-quick down wgcf >/dev/null 2>&1
+        v6=$(curl -s6m8 https://ip.gs -k)
+        v4=$(curl -s4m8 https://ip.gs -k)
+        wg-quick up wgcf >/dev/null 2>&1
+    else
+        v6=$(curl -s6m8 https://ip.gs -k)
+        v4=$(curl -s4m8 https://ip.gs -k)
+    fi
+    
+    config_port=$(/usr/local/x-ui/x-ui 2>&1 | grep tcp | awk '{print $5}' | sed "s/://g")
+}
+
 show_usage() {
     echo "x-ui 管理脚本使用方法: "
     echo "------------------------------------------"
@@ -466,24 +489,6 @@ show_usage() {
     echo "x-ui install      - 安装 x-ui 面板"
     echo "x-ui uninstall    - 卸载 x-ui 面板"
     echo "------------------------------------------"
-}
-
-check_login_info(){
-    yellow "正在检查VPS系统及x-ui面板配置, 请稍等..."
-    
-    WgcfIPv4Status=$(curl -s4m8 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
-    WgcfIPv6Status=$(curl -s6m8 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
-    if [[ $WgcfIPv4Status =~ "on"|"plus" ]] || [[ $WgcfIPv6Status =~ "on"|"plus" ]]; then
-        wg-quick down wgcf >/dev/null 2>&1
-        v6=`curl -s6m8 https://ip.gs -k`
-        v4=`curl -s4m8 https://ip.gs -k`
-        wg-quick up wgcf >/dev/null 2>&1
-    else
-        v6=`curl -s6m8 https://ip.gs -k`
-        v4=`curl -s4m8 https://ip.gs -k`
-    fi
-    
-    config_port=$(/usr/local/x-ui/x-ui 2>&1 | grep tcp | awk '{print $5}' | sed "s/://g")
 }
 
 show_menu() {
@@ -508,10 +513,11 @@ show_menu() {
  ${GREEN}12.${PLAIN} 设置 x-ui 开机自启
  ${GREEN}13.${PLAIN} 取消 x-ui 开机自启
 ————————————————
- ${GREEN}14.${PLAIN} 一键安装 bbr (最新内核)
- ${GREEN}15.${PLAIN} 一键申请证书 (acme脚本申请)
- ${GREEN}16.${PLAIN} VPS防火墙放开所有网络端口
- ${GREEN}17.${PLAIN} 安装并配置CloudFlare WARP
+ ${GREEN}14.${PLAIN} 更新 Geosite 和 GeoIP
+ ${GREEN}15.${PLAIN} 一键安装 bbr (最新内核)
+ ${GREEN}16.${PLAIN} 一键申请证书 (acme脚本申请)
+ ${GREEN}17.${PLAIN} VPS防火墙放开所有网络端口
+ ${GREEN}18.${PLAIN} 安装并配置CloudFlare WARP
     "
     show_status
     echo ""
@@ -523,7 +529,7 @@ show_menu() {
         echo -e "面板IPv4登录地址为: ${GREEN}http://$v4:$config_port ${PLAIN}"
         echo -e "面板IPv6登录地址为: ${GREEN}http://[$v6]:$config_port ${PLAIN}"
     fi
-    echo && read -rp "请输入选择 [0-17]: " num
+    echo && read -rp "请输入选项 [0-18]: " num
     
     case "${num}" in
         0) exit 1 ;;
@@ -540,11 +546,12 @@ show_menu() {
         11) check_install && show_log ;;
         12) check_install && enable_xui ;;
         13) check_install && disable_xui ;;
-        14) install_bbr ;;
-        15) wget -N --no-check-certificate https://raw.githubusercontents.com/taffychan/acme/main/acme.sh && bash acme.sh && before_show_menu ;;
-        16) open_ports ;;
-        17) wget -N --no-check-certificate https://raw.githubusercontents.com/taffychan/warp/main/warp.sh && bash warp.sh && before_show_menu ;;
-        *) red "请输入正确的数字 [0-17]" ;;
+        14) update_geo ;;
+        15) install_bbr ;;
+        16) wget -N --no-check-certificate https://raw.githubusercontent.com/taffychan/acme/main/acme.sh && bash acme.sh && before_show_menu ;;
+        17) open_ports ;;
+        18) wget -N --no-check-certificate https://raw.githubusercontent.com/taffychan/warp/main/warp.sh && bash warp.sh && before_show_menu ;;
+        *) red "请输入正确的选项 [0-18]" ;;
     esac
 }
 

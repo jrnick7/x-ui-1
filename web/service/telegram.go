@@ -54,7 +54,7 @@ func (s *TelegramService) GetsystemStatus() string {
 	}
 
 	// xray version
-	status += fmt.Sprintf("xray内核版本: %s\r\n", s.xrayService.GetXrayVersion())
+	status += fmt.Sprintf("目前xray内核版本: %s\r\n", s.xrayService.GetXrayVersion())
 
 	// ip address
 	var ip string
@@ -149,9 +149,9 @@ func (s *TelegramService) StartRun() {
 		case "restart":
 			err := s.xrayService.RestartXray(true)
 			if err != nil {
-				msg.Text = fmt.Sprintln("重启xray核心失败, err: ", err)
+				msg.Text = fmt.Sprintln("重启xray服务失败, err: ", err)
 			} else {
-				msg.Text = "已成功重启xray核心"
+				msg.Text = "已成功重启xray服务"
 			}
 
 		case "disable":
@@ -231,7 +231,7 @@ func (s *TelegramService) StartRun() {
 			
 /help 获取bot的帮助信息 (此菜单)
 /delete [PORT] 删除对应端口的节点
-/restart 重启xray内核
+/restart 重启xray服务
 /status 获取当前系统状态
 /enable [PORT] 开启对应端口的节点
 /disable [PORT] 关闭对应端口的节点

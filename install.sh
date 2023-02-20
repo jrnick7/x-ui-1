@@ -57,27 +57,100 @@ archAffix(){
     esac
 }
 
+info_bar(){
+    clear
+    echo "#############################################################"
+    echo -e "#                         ${RED}x-ui 面板${PLAIN}                         #"
+    echo -e "# ${GREEN}作者${PLAIN}: taffychan                                           #"
+    echo -e "# ${GREEN}GitHub${PLAIN}: https://github.com/taffychan                      #"
+    echo "#############################################################"
+    echo ""
+    echo -e "操作系统: ${GREEN} ${CMD} ${PLAIN}"
+    echo ""
+    sleep 2
+}
+
 check_status(){
-    yellow "正在检查VPS系统及IP配置环境, 请稍等..."
+    yellow "正在检查VPS的IP配置环境, 请稍等..." && sleep 1
     WgcfIPv4Status=$(curl -s4m8 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
     WgcfIPv6Status=$(curl -s6m8 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
     if [[ $WgcfIPv4Status =~ "on"|"plus" ]] || [[ $WgcfIPv6Status =~ "on"|"plus" ]]; then
         wg-quick down wgcf >/dev/null 2>&1
-        v6=`curl -s6m8 https://ip.gs -k`
-        v4=`curl -s4m8 https://ip.gs -k`
+        v6=$(curl -s6m8 https://ip.gs -k)
+        v4=$(curl -s4m8 https://ip.gs -k)
         wg-quick up wgcf >/dev/null 2>&1
     else
-        v6=`curl -s6m8 https://ip.gs -k`
-        v4=`curl -s4m8 https://ip.gs -k`
+        v6=$(curl -s6m8 https://ip.gs -k)
+        v4=$(curl -s4m8 https://ip.gs -k)
         if [[ -z $v4 && -n $v6 ]]; then
             yellow "检测到为纯IPv6 VPS, 已自动添加DNS64解析服务器"
             echo -e "nameserver 2a01:4f8:c2c:123f::1" > /etc/resolv.conf
         fi
     fi
+    sleep 1
 }
 
-config_panel() {
-    yellow "出于安全考虑，安装/更新完成后需要强制修改端口与账户密码"
+install_base(){
+    if [[ ! $SYSTEM == "CentOS" ]]; then
+        ${PACKAGE_UPDATE[int]}
+    fi
+    if [[ -z $(type -P curl) ]]; then
+        yellow "检测curl未安装，正在安装中..."
+        ${PACKAGE_INSTALL[int]} curl
+    fi
+    if [[ -z $(type -P tar) ]]; then
+        yellow "检测tar未安装，正在安装中..."
+        ${PACKAGE_INSTALL[int]} tar
+    fi   
+    check_status
+}
+
+download_xui(){
+    if [[ -e /usr/local/x-ui/ ]]; then
+        rm -rf /usr/local/x-ui/
+    fi
+    
+    if [ $# == 0 ]; then
+        last_version=$(curl -Ls "https://api.github.com/repos/taffychan/x-ui-3/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/') || last_version=$(curl -sm8 https://raw.githubusercontent.com/taffychan/x-ui-3/main/config/version >/dev/null 2>&1)
+        if [[ -z "$last_version" ]]; then
+            red "检测 x-ui 版本失败，请确保你的服务器能够连接 Github API"
+            rm -f install.sh
+            exit 1
+        fi
+        yellow "检测到 x-ui 最新版本：${last_version}，开始安装"
+        wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(archAffix).tar.gz https://github.com/taffychan/x-ui-3/releases/download/${last_version}/x-ui-linux-$(archAffix).tar.gz
+        if [[ $? -ne 0 ]]; then
+            red "下载 x-ui 失败，请确保你的服务器能够连接并下载 Github 的文件"
+            rm -f install.sh
+            exit 1
+        fi
+    else
+        last_version=$1
+        url="https://github.com/taffychan/x-ui-3/releases/download/${last_version}/x-ui-linux-$(archAffix).tar.gz"
+        yellow "开始安装 x-ui $1"
+        wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(archAffix).tar.gz ${url}
+        if [[ $? -ne 0 ]]; then
+            red "下载 x-ui v$1 失败，请确保此版本存在"
+            rm -f install.sh
+            exit 1
+        fi
+    fi
+    
+    cd /usr/local/
+    tar zxvf x-ui-linux-$(archAffix).tar.gz
+    rm -f x-ui-linux-$(archAffix).tar.gz
+    
+    cd x-ui
+    chmod +x x-ui bin/xray-linux-$(archAffix)
+    cp -f x-ui.service /etc/systemd/system/
+    
+    wget -N --no-check-certificate https://raw.githubusercontent.com/taffychan/x-ui-3/main/x-ui.sh -O /usr/bin/x-ui
+    chmod +x /usr/local/x-ui/x-ui.sh
+    chmod +x /usr/bin/x-ui
+}
+
+panel_config() {
+    yellow "出于安全性考虑，安装/更新完成后需要强制修改端口与账户密码"
     read -rp "请设置登录用户名 [默认随机用户名]: " config_account
     [[ -z $config_account ]] && config_account=$(date +%s%N | md5sum | cut -c 1-8)
     read -rp "请设置登录密码 [默认随机密码]: " config_password
@@ -95,85 +168,6 @@ config_panel() {
     /usr/local/x-ui/x-ui setting -port ${config_port} >/dev/null 2>&1
 }
 
-install_base(){
-    if [[ ! $SYSTEM == "CentOS" ]]; then
-        ${PACKAGE_UPDATE[int]}
-    fi
-    
-    if [[ -z $(type -P curl) ]]; then
-        yellow "检测curl未安装，正在安装中..."
-        ${PACKAGE_INSTALL[int]} curl
-    fi
-    
-    if [[ -z $(type -P tar) ]]; then
-        yellow "检测tar未安装，正在安装中..."
-        ${PACKAGE_INSTALL[int]} tar
-    fi
-    
-    check_status
-}
-
-download_xui(){
-    if [[ -e /usr/local/x-ui/ ]]; then
-        rm -rf /usr/local/x-ui/
-    fi
-    
-    if [ $# == 0 ]; then
-        last_version=$(curl -Ls "https://api.github.com/repos/taffychan/x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-        if [[ -z "$last_version" ]]; then
-            # red "检测 x-ui 版本失败，可能是超出 Github API 限制，正在使用备用源检测最新版本"
-            last_version=$(curl -sm8 https://raw.githubusercontents.com/taffychan/x-ui/main/config/version >/dev/null 2>&1)
-            if [[ -z "$last_version" ]]; then
-                red "检测 x-ui 版本失败，请确保你的服务器能够连接 Github API"
-                rm -f install.sh
-                exit 1
-            fi
-        fi
-        yellow "检测到 x-ui 最新版本：${last_version}，开始安装"
-        wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(archAffix).tar.gz https://github.com/taffychan/x-ui/releases/download/${last_version}/x-ui-linux-$(archAffix).tar.gz
-        if [[ $? -ne 0 ]]; then
-            red "下载 x-ui 失败，请确保你的服务器能够连接并下载 Github 的文件"
-            rm -f install.sh
-            exit 1
-        fi
-    else
-        last_version=$1
-        url="https://github.com/taffychan/x-ui/releases/download/${last_version}/x-ui-linux-$(archAffix).tar.gz"
-        yellow "开始安装 x-ui v$1"
-        wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(archAffix).tar.gz ${url}
-        if [[ $? -ne 0 ]]; then
-            red "下载 x-ui v$1 失败，请确保此版本存在"
-            rm -f install.sh
-            exit 1
-        fi
-    fi
-    
-    cd /usr/local/
-    tar zxvf x-ui-linux-$(archAffix).tar.gz
-    rm -f x-ui-linux-$(archAffix).tar.gz
-    
-    cd x-ui
-    chmod +x x-ui bin/xray-linux-$(archAffix)
-    cp -f x-ui.service /etc/systemd/system/
-    
-    wget -N --no-check-certificate https://raw.githubusercontents.com/taffychan/x-ui/main/x-ui.sh -O /usr/bin/x-ui
-    chmod +x /usr/local/x-ui/x-ui.sh
-    chmod +x /usr/bin/x-ui
-}
-
-info_bar(){
-    clear
-    echo "#############################################################"
-    echo -e "#                         ${RED}x-ui 面板${PLAIN}                         #"
-    echo -e "# ${GREEN}作者${PLAIN}: taffychan                                           #"
-    echo -e "# ${GREEN}GitHub${PLAIN}: https://github.com/taffychan                      #"
-    echo "#############################################################"
-    echo ""
-    echo -e "系统: ${GREEN} ${CMD} ${PLAIN}"
-    echo ""
-    sleep 2
-}
-
 install_xui() {
     info_bar
     
@@ -181,7 +175,14 @@ install_xui() {
         yellow "检测到目前已安装x-ui面板, 确认卸载原x-ui面板?"
         read -rp "请输入选项 [Y/N, 默认N]: " yn
         if [[ $yn =~ "Y"|"y" ]]; then
-            x-ui uninstall
+            systemctl stop x-ui
+            systemctl disable x-ui
+            rm /etc/systemd/system/x-ui.service -f
+            systemctl daemon-reload
+            systemctl reset-failed
+            rm /etc/x-ui/ -rf
+            rm /usr/local/x-ui/ -rf
+            rm /usr/bin/x-ui -f
         else
             red "已取消卸载, 脚本退出!"
             exit 1
@@ -192,7 +193,7 @@ install_xui() {
     
     install_base
     download_xui $1
-    config_panel
+    panel_config
     
     systemctl daemon-reload
     systemctl enable x-ui >/dev/null 2>&1
@@ -219,6 +220,8 @@ install_xui() {
     echo -e "----------------------------------------------"
     echo -e ""
     show_login_info
+    echo -e ""
+    yellow "如无法访问x-ui面板，请先在SSH命令行输入x-ui命令，再选择17选项放开防火墙端口"
 }
 
 show_login_info(){
@@ -230,8 +233,8 @@ show_login_info(){
         echo -e "面板IPv4登录地址为: ${GREEN}http://$v4:$config_port ${PLAIN}"
         echo -e "面板IPv6登录地址为: ${GREEN}http://[$v6]:$config_port ${PLAIN}"
     fi
-    echo -e "登录用户名: ${GREEN}$config_account ${PLAIN}"
-    echo -e "登录密码: ${GREEN}$config_password ${PLAIN}"
+    echo -e "用户名: ${GREEN}$config_account ${PLAIN}"
+    echo -e "密码: ${GREEN}$config_password ${PLAIN}"
 }
 
 install_xui $1
